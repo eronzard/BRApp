@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// YouVersion internal version IDs
 const VERSION_IDS: Record<string, number> = {
   NIV: 111,
   KJV: 1,
@@ -11,50 +10,54 @@ const VERSION_IDS: Record<string, number> = {
   MSG: 97,
 };
 
-function buildHtmlFromArray(items: any[]): string {
-  const parts: string[] = [];
-  for (const item of items) {
-    if (item.type === 'verse') {
-      const verseNum = item.verse_number ?? item.human_reference?.split(':')[1] ?? '';
-      const text = (item.content ?? '').trim();
-      parts.push(`<sup>${verseNum}</sup> ${text}`);
-    } else if (item.type === 'heading') {
-      parts.push(`<strong>${item.content ?? ''}</strong>`);
-    }
-  }
-  return parts.join('<br>');
+interface ParsedRef {
+  bookCode: string;
+  chapter: number;
+  verseStart?: number;
+  verseEnd?: number;
+  fullReference: string;
+}
+
+function parseReference(ref: string): ParsedRef | null {
+  const trimmed = ref.trim();
+  const match = trimmed.match(/^(\d?\s?[a-zA-Z]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/);
+  if (!match) return null;
+
+  const [, bookRaw, chapterStr, verseStartStr, verseEndStr] = match;
+  const bookKey = bookRaw.toLowerCase().replace(/\s/g, '');
+  const bookCode = BOOK_MAP[bookKey];
+  if (!bookCode) return null;
+
+  const chapter = parseInt(chapterStr);
+  const verseStart = verseStartStr ? parseInt(verseStartStr) : undefined;
+  const verseEnd = verseEndStr ? parseInt(verseEndStr) : verseStart;
+
+  let fullReference = `${bookRaw.trim()} ${chapter}`;
+  if (verseStart !== undefined) fullReference += `:${verseStart}`;
+  if (verseEnd !== undefined && verseEnd !== verseStart) fullReference += `-${verseEnd}`;
+
+  return { bookCode, chapter, verseStart, verseEnd, fullReference };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Allow only GET
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   const { reference, version } = req.query as { reference?: string; version?: string };
+  if (!reference || !version) return res.status(400).json({ error: 'Missing params: reference, version' });
 
-  if (!reference || !version) {
-    return res.status(400).json({ error: 'Missing required params: reference, version' });
-  }
-
-  const apiKey = process.env.YOUVERSION_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: 'YouVersion API key not configured' });
-  }
+  const apiKey = process.env.YVP_APP_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'YVP_APP_KEY not configured' });
 
   const versionId = VERSION_IDS[version.toUpperCase()];
-  if (!versionId) {
-    return res.status(400).json({ error: `Unsupported version: ${version}` });
-  }
+  if (!versionId) return res.status(400).json({ error: `Unsupported version: ${version}` });
+
+  const parsed = parseReference(String(reference));
+  if (!parsed) return res.status(400).json({ error: `Could not parse reference: ${reference}` });
+
+  const { bookCode, chapter, verseStart, verseEnd } = parsed;
 
   try {
-    // YouVersion Developer API — passage lookup
-    // Docs: https://developers.youversion.com
-    // Endpoint requires the reference in USFM format (e.g. "JHN.3.16") and a version_id.
-    // We accept human references (e.g. "John 3:16") and convert them here.
-    const usfm = humanToUsfm(String(reference));
-
-    const url = `https://api.youversion.com/v1/bibles/${versionId}/passages/${encodeURIComponent(usfm)}`;
+    const url = `https://api.youversion.com/v1/bibles/${versionId}/books/${bookCode}/chapters/${chapter}/verses`;
 
     const response = await fetch(url, {
       headers: {
@@ -70,31 +73,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const data = await response.json();
+    let verses: any[] = data?.data ?? [];
 
-    const fullReference: string =
-      data?.data?.reference?.human ?? data?.data?.human_reference ?? String(reference);
-
-    // v1 API may return content as an HTML string or as an array of verse objects
-    const rawContent = data?.data?.content ?? data?.passages;
-    let text: string;
-    if (typeof rawContent === 'string') {
-      text = rawContent;
-    } else if (Array.isArray(rawContent) && rawContent.length > 0) {
-      text = buildHtmlFromArray(rawContent);
-    } else {
-      // Log the shape so we can adjust parsing after first real test
-      console.log('Unexpected YouVersion response shape:', JSON.stringify(data).slice(0, 500));
-      text = 'Could not retrieve scripture text.';
+    // Filter to requested verse range if specified
+    if (verseStart !== undefined) {
+      const end = verseEnd ?? verseStart;
+      verses = verses.filter(v => {
+        const num = v.verse_number ?? v.number ?? parseInt((v.id ?? '').split('.')[2] ?? '0');
+        return num >= verseStart && num <= end;
+      });
     }
 
-    return res.status(200).json({ text, fullReference });
+    const text = verses.map(v => {
+      const num = v.verse_number ?? v.number ?? parseInt((v.id ?? '').split('.')[2] ?? '');
+      const body = (v.text ?? v.content ?? '').trim();
+      return `<sup>${num}</sup> ${body}`;
+    }).join('<br>');
+
+    if (!text) {
+      console.log('Empty result. Raw response shape:', JSON.stringify(data).slice(0, 500));
+    }
+
+    return res.status(200).json({
+      text: text || 'Could not retrieve scripture text.',
+      fullReference: parsed.fullReference,
+    });
   } catch (err: any) {
     console.error('bible proxy error:', err);
     return res.status(500).json({ error: 'Internal server error', detail: err?.message });
   }
 }
 
-// ---------- USFM conversion helpers ----------
+// ---------- Book name → USFM code ----------
 
 const BOOK_MAP: Record<string, string> = {
   genesis: 'GEN', gen: 'GEN',
@@ -118,7 +128,7 @@ const BOOK_MAP: Record<string, string> = {
   psalms: 'PSA', psalm: 'PSA', psa: 'PSA', ps: 'PSA',
   proverbs: 'PRO', prov: 'PRO', pro: 'PRO',
   ecclesiastes: 'ECC', ecc: 'ECC', eccl: 'ECC',
-  'songofsolomon': 'SNG', 'songofsongs': 'SNG', sos: 'SNG', song: 'SNG', sng: 'SNG',
+  songofsolomon: 'SNG', songofsongs: 'SNG', sos: 'SNG', song: 'SNG', sng: 'SNG',
   isaiah: 'ISA', isa: 'ISA',
   jeremiah: 'JER', jer: 'JER',
   lamentations: 'LAM', lam: 'LAM',
@@ -164,24 +174,3 @@ const BOOK_MAP: Record<string, string> = {
   jude: 'JUD', jud: 'JUD',
   revelation: 'REV', rev: 'REV',
 };
-
-function humanToUsfm(ref: string): string {
-  // e.g. "John 3:16" → "JHN.3.16"
-  // e.g. "Galatians 5" → "GAL.5"
-  // e.g. "John 3:16-18" → "JHN.3.16-JHN.3.18"
-  const trimmed = ref.trim();
-
-  // Split book name from chapter/verse
-  const match = trimmed.match(/^(\d?\s?[a-zA-Z]+)\s+(\d+)(?::(\d+)(?:-(\d+))?)?$/);
-  if (!match) return trimmed; // Fall back to raw if unparseable
-
-  const [, bookRaw, chapter, verseStart, verseEnd] = match;
-  const bookKey = bookRaw.toLowerCase().replace(/\s/g, '');
-  const bookCode = BOOK_MAP[bookKey];
-
-  if (!bookCode) return trimmed;
-
-  if (!verseStart) return `${bookCode}.${chapter}`;
-  if (!verseEnd) return `${bookCode}.${chapter}.${verseStart}`;
-  return `${bookCode}.${chapter}.${verseStart}-${bookCode}.${chapter}.${verseEnd}`;
-}
