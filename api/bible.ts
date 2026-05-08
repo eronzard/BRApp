@@ -11,9 +11,7 @@ const VERSION_IDS: Record<string, number> = {
   MSG: 97,
 };
 
-// Convert a YouVersion content array into HTML with <sup> verse numbers and <br> separators.
-// YouVersion returns passages as an array of content objects with type "verse" or "heading".
-function buildHtml(items: any[]): string {
+function buildHtmlFromArray(items: any[]): string {
   const parts: string[] = [];
   for (const item of items) {
     if (item.type === 'verse') {
@@ -56,11 +54,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // We accept human references (e.g. "John 3:16") and convert them here.
     const usfm = humanToUsfm(String(reference));
 
-    const url = `https://developers.youversion.com/1.0/passages?version_id=${versionId}&usfm=${encodeURIComponent(usfm)}`;
+    const url = `https://api.youversion.com/v1/bibles/${versionId}/passages/${encodeURIComponent(usfm)}`;
 
     const response = await fetch(url, {
       headers: {
-        'X-YouVersion-Token': apiKey,
+        'X-YVP-App-Key': apiKey,
         'Accept': 'application/json',
       },
     });
@@ -73,12 +71,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const data = await response.json();
 
-    // YouVersion returns { data: { content: [...], reference: { human: "John 3:16" } } }
-    const content = data?.data?.content ?? data?.passages ?? [];
     const fullReference: string =
-      data?.data?.reference?.human ?? data?.data?.usfm ?? String(reference);
+      data?.data?.reference?.human ?? data?.data?.human_reference ?? String(reference);
 
-    const text = content.length > 0 ? buildHtml(content) : String(reference);
+    // v1 API may return content as an HTML string or as an array of verse objects
+    const rawContent = data?.data?.content ?? data?.passages;
+    let text: string;
+    if (typeof rawContent === 'string') {
+      text = rawContent;
+    } else if (Array.isArray(rawContent) && rawContent.length > 0) {
+      text = buildHtmlFromArray(rawContent);
+    } else {
+      // Log the shape so we can adjust parsing after first real test
+      console.log('Unexpected YouVersion response shape:', JSON.stringify(data).slice(0, 500));
+      text = 'Could not retrieve scripture text.';
+    }
 
     return res.status(200).json({ text, fullReference });
   } catch (err: any) {
