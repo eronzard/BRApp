@@ -25,11 +25,6 @@ import {
   Lock as LockIcon,
   Check,
   X,
-  ChevronRight,
-  Calendar,
-  History,
-  Info,
-  ExternalLink,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -41,13 +36,12 @@ interface AdminPanelProps {
   onRoomUpdate: (updated: Room) => void;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ 
-  room, 
-  currentUser, 
-  currentReading, 
+export const AdminPanel: React.FC<AdminPanelProps> = ({
+  room,
+  currentUser,
   activeReadings,
-  onReadingUpdate, 
-  onRoomUpdate 
+  onReadingUpdate,
+  onRoomUpdate
 }) => {
   const [activeTab, setActiveTab] = useState<'scripture' | 'members' | 'settings'>('scripture');
   const [loading, setLoading] = useState(false);
@@ -59,10 +53,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Scripture Form State
   const [reference, setReference] = useState('');
-  const [version, setVersion] = useState('NKJV');
+  const [version, setVersion] = useState('NIV');
   const [theme, setTheme] = useState('');
-  const [fetchedText, setFetchedText] = useState('');
-  const [isFetching, setIsFetching] = useState(false);
 
   // Members State
   const [members, setMembers] = useState<RoomMember[]>([]);
@@ -134,20 +126,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setLoadingArchive(false);
   };
 
-  const handleFetchText = async () => {
-    if (!reference.trim()) return;
-    setIsFetching(true);
-    setMessage(null);
-    try {
-      const details = await getScriptureDetails(reference, version);
-      setFetchedText(details.text);
-      setReference(details.fullReference);
-    } catch (err) {
-      setMessage({ text: "Failed to fetch scripture text. Please try again.", type: 'error' });
-    } finally {
-      setIsFetching(false);
-    }
-  };
 
   const handlePublish = async () => {
     if (!reference.trim()) return;
@@ -204,7 +182,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setMessage({ text: `"${normalizedReference}" published successfully!`, type: 'success' });
       setReference('');
       setTheme('');
-      setFetchedText('');
       onReadingUpdate();
       fetchArchivedReadings();
     } catch (error: any) {
@@ -227,8 +204,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       if (error) throw error;
 
-      await onReadingUpdate();
-      await fetchArchivedReadings();
+      onReadingUpdate();
+      fetchArchivedReadings();
       setMessage({ text: "Scripture archived successfully!", type: 'success' });
     } catch (error: any) {
       console.error("Archive error:", error);
@@ -254,8 +231,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       if (error) throw error;
 
-      await onReadingUpdate();
-      await fetchArchivedReadings();
+      onReadingUpdate();
+      fetchArchivedReadings();
       setMessage({ text: "Scripture reactivated successfully!", type: 'success' });
     } catch (error: any) {
       const errorMsg = error.message || JSON.stringify(error);

@@ -68,4 +68,4 @@ export enum AppView {
   USER_GUIDE = 'USER_GUIDE',
 }
 
-export const SUPPORTED_VERSIONS = ['NIV', 'AMP', 'ASV', 'EASY', 'NASB'];
+export const SUPPORTED_VERSIONS = ['AMP', 'ASV', 'EASY', 'NASB', 'NIV'];
