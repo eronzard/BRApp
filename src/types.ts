@@ -68,4 +68,4 @@ export enum AppView {
   USER_GUIDE = 'USER_GUIDE',
 }
 
-export const SUPPORTED_VERSIONS = ['NKJV', 'KJV', 'NIV', 'NLT', 'AMP', 'ESV', 'MSG'];
+export const SUPPORTED_VERSIONS = ['NIV', 'AMP', 'ASV', 'EASY', 'NASB'];

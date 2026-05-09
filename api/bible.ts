@@ -2,12 +2,10 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const VERSION_IDS: Record<string, number> = {
   NIV: 111,
-  KJV: 1,
-  NKJV: 114,
-  NLT: 116,
   AMP: 1588,
-  ESV: 59,
-  MSG: 97,
+  ASV: 12,
+  EASY: 2079,
+  NASB: 2692,
 };
 
 
