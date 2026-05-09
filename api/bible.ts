@@ -88,8 +88,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { bookCode, chapter, verseStart, verseEnd } = parsed;
 
+  // Build USFM passage reference: REV.1 / JHN.3.16 / JHN.3.16-JHN.3.18
+  let usfm = `${bookCode}.${chapter}`;
+  if (verseStart !== undefined) {
+    usfm = `${bookCode}.${chapter}.${verseStart}`;
+    if (verseEnd !== undefined && verseEnd !== verseStart) {
+      usfm += `-${bookCode}.${chapter}.${verseEnd}`;
+    }
+  }
+
   try {
-    const url = `https://api.youversion.com/v1/bibles/${versionId}/books/${bookCode}/chapters/${chapter}/verses`;
+    const url = `https://api.youversion.com/v1/bibles/${versionId}/passages/${usfm}`;
 
     const response = await fetch(url, {
       headers: {
@@ -105,30 +114,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const data = await response.json();
-    let verses: any[] = data?.data ?? [];
+    console.log('Passage response shape:', JSON.stringify(data).slice(0, 600));
 
-    // Log first verse so we can confirm the field names
-    if (verses.length > 0) {
-      console.log('Sample verse object:', JSON.stringify(verses[0]));
-    }
+    // Parse passage content — log shows us the real shape; handle both string and array
+    const raw = data?.data ?? data;
+    let text = '';
 
-    // Filter to requested verse range if specified
-    if (verseStart !== undefined) {
-      const end = verseEnd ?? verseStart;
-      verses = verses.filter(v => {
+    if (typeof raw?.content === 'string') {
+      text = raw.content;
+    } else if (typeof raw?.text === 'string') {
+      text = raw.text;
+    } else if (Array.isArray(raw?.verses)) {
+      text = raw.verses.map((v: any) => {
         const num = extractVerseNumber(v);
-        return num >= verseStart && num <= end;
-      });
-    }
-
-    const text = verses.map(v => {
-      const num = extractVerseNumber(v);
-      const body = (v.text ?? v.content ?? v.body ?? '').trim();
-      return `<sup>${num}</sup> ${body}`;
-    }).join('<br>');
-
-    if (!text) {
-      console.log('Empty result. Raw response:', JSON.stringify(data).slice(0, 800));
+        const body = (v.text ?? v.content ?? '').trim();
+        return `<sup>${num}</sup> ${body}`;
+      }).join('<br>');
+    } else if (Array.isArray(raw)) {
+      text = raw.map((v: any) => {
+        const num = extractVerseNumber(v);
+        const body = (v.text ?? v.content ?? '').trim();
+        return `<sup>${num}</sup> ${body}`;
+      }).join('<br>');
     }
 
     // Build the full human reference using the proper book name
