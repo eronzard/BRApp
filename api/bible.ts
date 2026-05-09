@@ -10,19 +10,6 @@ const VERSION_IDS: Record<string, number> = {
   MSG: 97,
 };
 
-function extractVerseNumber(v: any): number {
-  if (typeof v.verse_number === 'number') return v.verse_number;
-  if (typeof v.number === 'number') return v.number;
-  // Try parsing from dot-separated id e.g. "REV.1.3" or "REV.1.3.1"
-  const idStr: string = v.id ?? v.usfm ?? v.verse_id ?? '';
-  const parts = idStr.split('.');
-  // Last numeric segment is the verse number
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const n = parseInt(parts[i]);
-    if (!isNaN(n)) return n;
-  }
-  return NaN;
-}
 
 const BOOK_NAMES: Record<string, string> = {
   GEN: 'Genesis', EXO: 'Exodus', LEV: 'Leviticus', NUM: 'Numbers', DEU: 'Deuteronomy',
@@ -88,57 +75,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { bookCode, chapter, verseStart, verseEnd } = parsed;
 
-  // Build USFM passage reference: REV.1 / JHN.3.16 / JHN.3.16-JHN.3.18
-  let usfm = `${bookCode}.${chapter}`;
-  if (verseStart !== undefined) {
-    usfm = `${bookCode}.${chapter}.${verseStart}`;
-    if (verseEnd !== undefined && verseEnd !== verseStart) {
-      usfm += `-${bookCode}.${chapter}.${verseEnd}`;
-    }
-  }
+  const headers = { 'X-YVP-App-Key': apiKey, 'Accept': 'application/json' };
+  const base = `https://api.youversion.com/v1/bibles/${versionId}`;
 
   try {
-    const url = `https://api.youversion.com/v1/bibles/${versionId}/passages/${usfm}`;
+    // Step 1: Get ordered list of verses for this chapter
+    const versesRes = await fetch(`${base}/books/${bookCode}/chapters/${chapter}/verses`, { headers });
+    if (!versesRes.ok) {
+      const body = await versesRes.text();
+      console.error('YouVersion verses error:', versesRes.status, body);
+      return res.status(versesRes.status).json({ error: 'YouVersion API error', detail: body });
+    }
+    const versesData = await versesRes.json();
+    let verseList: any[] = versesData?.data ?? [];
 
-    const response = await fetch(url, {
-      headers: {
-        'X-YVP-App-Key': apiKey,
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      console.error('YouVersion API error:', response.status, body);
-      return res.status(response.status).json({ error: 'YouVersion API error', detail: body });
+    // Step 2: Filter to requested verse range if specified
+    if (verseStart !== undefined) {
+      const end = verseEnd ?? verseStart;
+      verseList = verseList.filter((v: any) => {
+        const num = parseInt(v.id ?? v.title ?? '0');
+        return num >= verseStart && num <= end;
+      });
     }
 
-    const data = await response.json();
-    console.log('Passage response shape:', JSON.stringify(data).slice(0, 600));
+    // Step 3: Fetch each verse's text in parallel using passage_id
+    const verseTexts = await Promise.all(
+      verseList.map(async (v: any) => {
+        const verseNum = parseInt(v.id ?? v.title ?? '0');
+        const passageId: string = v.passage_id ?? '';
+        if (!passageId) return { num: verseNum, text: '' };
 
-    // Parse passage content — log shows us the real shape; handle both string and array
-    const raw = data?.data ?? data;
-    let text = '';
+        const pr = await fetch(`${base}/passages/${passageId}`, { headers });
+        if (!pr.ok) return { num: verseNum, text: '' };
+        const pd = await pr.json();
+        const text = (pd?.data?.content ?? pd?.data?.text ?? pd?.content ?? '').trim();
+        return { num: verseNum, text };
+      })
+    );
 
-    if (typeof raw?.content === 'string') {
-      text = raw.content;
-    } else if (typeof raw?.text === 'string') {
-      text = raw.text;
-    } else if (Array.isArray(raw?.verses)) {
-      text = raw.verses.map((v: any) => {
-        const num = extractVerseNumber(v);
-        const body = (v.text ?? v.content ?? '').trim();
-        return `<sup>${num}</sup> ${body}`;
-      }).join('<br>');
-    } else if (Array.isArray(raw)) {
-      text = raw.map((v: any) => {
-        const num = extractVerseNumber(v);
-        const body = (v.text ?? v.content ?? '').trim();
-        return `<sup>${num}</sup> ${body}`;
-      }).join('<br>');
-    }
+    // Step 4: Assemble HTML with verse numbers
+    const text = verseTexts
+      .filter(v => v.text)
+      .map(v => `<sup>${v.num}</sup> ${v.text}`)
+      .join('<br>');
 
-    // Build the full human reference using the proper book name
+    // Build full human reference
     const fullBookName = BOOK_NAMES[bookCode] ?? bookCode;
     let fullReference = `${fullBookName} ${chapter}`;
     if (verseStart !== undefined) fullReference += `:${verseStart}`;

@@ -5,7 +5,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) return res.status(500).json({ error: 'YVP_APP_KEY not configured' });
 
   try {
-    const response = await fetch('https://api.youversion.com/v1/bibles?language_ranges=en', {
+    const response = await fetch('https://api.youversion.com/v1/bibles?language_ranges[]=en', {
       headers: {
         'X-YVP-App-Key': apiKey,
         'Accept': 'application/json',
