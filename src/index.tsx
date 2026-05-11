@@ -9,6 +9,10 @@ import { HowItWorksPage } from './pages/HowItWorksPage';
 import { FAQPage } from './pages/FAQPage';
 import { ContactPage } from './pages/ContactPage';
 import { DonatePage } from './pages/DonatePage';
+import { PrivacyPage } from './pages/PrivacyPage';
+import { TermsPage } from './pages/TermsPage';
+import { CookiesPage } from './pages/CookiesPage';
+import { GDPRRightsPage } from './pages/GDPRRightsPage';
 import './index.css';
 
 // Redirect Supabase auth hash links (password reset, magic links) to /app
@@ -33,6 +37,10 @@ ReactDOM.createRoot(rootElement).render(
           <Route path="faq" element={<FAQPage />} />
           <Route path="contact" element={<ContactPage />} />
           <Route path="donate" element={<DonatePage />} />
+          <Route path="privacy" element={<PrivacyPage />} />
+          <Route path="terms" element={<TermsPage />} />
+          <Route path="cookies" element={<CookiesPage />} />
+          <Route path="gdpr-rights" element={<GDPRRightsPage />} />
         </Route>
         <Route path="/web/*" element={<App />} />
         <Route path="*" element={<Navigate to="/" replace />} />
